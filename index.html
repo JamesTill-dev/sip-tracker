@@ -1,0 +1,1734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0f0f13">
+  <title>Sip Tracker</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <style>
+    /* ── Design tokens ───────────────────────────────────── */
+    :root {
+      --bg:          #0f0f13;
+      --surface:     #1a1a22;
+      --surface2:    #24242f;
+      --border:      #2e2e3d;
+      --text:        #e8e8f0;
+      --text-muted:  #8080a0;
+      --accent:      #7c6af5;
+      --accent-dim:  #3d3478;
+      --beer:        #f59e0b;
+      --wine:        #e0557a;
+      --liquor:      #60a5fa;
+      --danger:      #f87171;
+      /* calendar dot intensity levels (warm amber) */
+      --dot-lo:      rgba(245, 158, 11, 0.38);
+      --dot-mid:     rgba(245, 158, 11, 0.70);
+      --dot-hi:      #f59e0b;
+      --radius:      14px;
+      --nav-h:       62px;
+      --font:        -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior: none;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      height: 100dvh;
+      overflow: hidden;
+    }
+
+    /* ── Bottom nav (3 tabs) ─────────────────────────────── */
+    nav {
+      position: fixed;
+      inset: auto 0 0 0;
+      height: var(--nav-h);
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex;
+      z-index: 100;
+    }
+
+    nav button {
+      flex: 1;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      font-size: 10px;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      transition: color 0.15s;
+      padding: 8px 0 10px;
+    }
+    nav button svg   { width: 22px; height: 22px; flex-shrink: 0; }
+    nav button.active { color: var(--accent); }
+
+    /* ── Screens ─────────────────────────────────────────── */
+    .screen {
+      display: none;
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 20px 16px calc(var(--nav-h) + 20px);
+      -webkit-overflow-scrolling: touch;
+    }
+    .screen.active  { display: flex; flex-direction: column; }
+    .screen::-webkit-scrollbar        { width: 3px; }
+    .screen::-webkit-scrollbar-track  { background: transparent; }
+    .screen::-webkit-scrollbar-thumb  { background: var(--border); border-radius: 2px; }
+
+    /* ── Shared ──────────────────────────────────────────── */
+    .screen-title {
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 16px;
+      flex-shrink: 0;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       LOG SCREEN  — content anchored to the bottom via
+       position:absolute so the top is intentionally empty
+    ════════════════════════════════════════════════════════*/
+    #screen-log {
+      position: relative;
+      overflow: hidden;
+      padding: 0;            /* handled by children */
+    }
+
+    /* settings cog — top-right corner of log screen */
+    .cog-btn {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 10;
+      transition: color 0.15s, background 0.15s;
+    }
+    .cog-btn svg      { width: 20px; height: 20px; }
+    .cog-btn:active   { background: var(--surface2); color: var(--text); }
+
+    /* anchor — holds week bar + drink rows at the bottom */
+    .log-anchor {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      bottom: calc(var(--nav-h) + 20px);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* ── Segmented weekly progress bar ───────────────────── */
+    .week-bar { background: var(--surface); border-radius: var(--radius); padding: 13px 16px; }
+    .week-bar-head {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 9px;
+    }
+    .week-count { font-variant-numeric: tabular-nums; transition: color 0.2s; }
+    .week-count.over { color: var(--danger); }
+
+    .prog-track {
+      height: 5px;
+      background: var(--border);
+      border-radius: 3px;
+      overflow: hidden;
+      display: flex;          /* segments side-by-side */
+    }
+    .prog-seg {
+      height: 100%;
+      width: 0%;
+      flex-shrink: 0;
+      transition: width 0.45s cubic-bezier(.4,0,.2,1);
+    }
+    .prog-seg.beer   { background: var(--beer); }
+    .prog-seg.wine   { background: var(--wine); }
+    .prog-seg.liquor { background: var(--liquor); }
+
+    /* ── Drink rows ──────────────────────────────────────── */
+    .drink-row {
+      background: var(--surface);
+      border-radius: var(--radius);
+      height: 82px;
+      display: flex;
+      align-items: center;
+      padding: 0 10px;
+      gap: 8px;
+    }
+
+    .drink-btn {
+      width: 54px;
+      height: 54px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      font-size: 26px;
+      line-height: 1;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      transition: transform 0.08s, background 0.1s, border-color 0.1s;
+      position: relative;     /* anchor for float */
+    }
+    .drink-btn:active { transform: scale(0.84); background: var(--accent-dim); border-color: var(--accent); }
+
+    .label-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .drink-label {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      transition: opacity 0.25s ease;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .drink-label.beer   { color: var(--beer); }
+    .drink-label.wine   { color: var(--wine); }
+    .drink-label.liquor { color: var(--liquor); }
+
+    /* ── +1 / −1 floating indicator ─────────────────────── */
+    .drink-float {
+      position: fixed;
+      transform: translateX(-50%);
+      font-size: 14px;
+      font-weight: 800;
+      pointer-events: none;
+      z-index: 400;
+      opacity: 1;
+      will-change: transform, opacity;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       HISTORY SCREEN — calendar top half, list bottom half
+    ════════════════════════════════════════════════════════*/
+    #screen-history {
+      overflow-y: hidden;     /* only #history-list scrolls */
+      padding-bottom: 0;      /* handled by #history-list */
+      gap: 0;
+    }
+
+    /* Calendar wrapper */
+    .cal-wrap {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      flex-shrink: 0;
+      margin-bottom: 12px;
+    }
+
+    .cal-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .cal-nav-btn {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 17px;
+      line-height: 1;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.12s;
+    }
+    .cal-nav-btn:active { background: var(--border); }
+    #cal-month-label { font-size: 14px; font-weight: 600; }
+
+    .cal-dow {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      margin-bottom: 3px;
+    }
+    .cal-dow span {
+      text-align: center;
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      padding: 2px 0 4px;
+    }
+
+    #cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 1px;
+    }
+
+    .cal-cell {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 3px 1px 4px;
+      min-height: 34px;
+      gap: 2px;
+    }
+    .cal-num {
+      font-size: 11px;
+      font-weight: 500;
+      width: 22px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      line-height: 1;
+    }
+    .cal-cell.cal-today .cal-num { background: var(--accent); color: #fff; font-weight: 700; }
+    .cal-cell.cal-empty .cal-num { color: transparent; }
+    .cal-dot {
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: transparent;
+    }
+    .cal-dot.lo  { background: var(--dot-lo); }
+    .cal-dot.mid { background: var(--dot-mid); }
+    .cal-dot.hi  { background: var(--dot-hi); }
+
+    /* Scrollable history list */
+    #history-list {
+      flex: 1;
+      min-height: 0;          /* crucial for flex children to shrink */
+      overflow-y: auto;
+      padding-bottom: calc(var(--nav-h) + 20px);
+      -webkit-overflow-scrolling: touch;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    #history-list::-webkit-scrollbar       { width: 3px; }
+    #history-list::-webkit-scrollbar-track { background: transparent; }
+    #history-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .day-card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      flex-shrink: 0;
+    }
+    .day-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+    .day-date  { font-size: 15px; font-weight: 600; }
+    .day-count { font-size: 13px; color: var(--text-muted); }
+    .chips     { display: flex; flex-wrap: wrap; gap: 7px; }
+    .chip {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 13px;
+      padding: 4px 11px;
+      border-radius: 20px;
+      background: var(--surface2);
+    }
+    .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .dot-beer   { background: var(--beer); }
+    .dot-wine   { background: var(--wine); }
+    .dot-liquor { background: var(--liquor); }
+    .empty {
+      text-align: center;
+      color: var(--text-muted);
+      padding: 32px 24px;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       STATS SCREEN
+    ════════════════════════════════════════════════════════*/
+    #screen-stats { gap: 14px; }
+
+    .filter-row { display: flex; gap: 8px; }
+    .filter-btn {
+      flex: 1;
+      padding: 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-muted);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .filter-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .stat-card { background: var(--surface); border-radius: var(--radius); padding: 16px; }
+    .stat-val  { font-size: 30px; font-weight: 700; color: var(--accent); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+    .stat-lbl  { font-size: 11px; color: var(--text-muted); margin-top: 3px; letter-spacing: 0.02em; text-transform: uppercase; }
+
+    .chart-box  { background: var(--surface); border-radius: var(--radius); padding: 16px; }
+    .chart-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+    .chart-title { font-size: 13px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+
+    .chart-tabs { display: flex; gap: 6px; }
+    .chart-tab {
+      width: 34px;
+      height: 34px;
+      padding: 7px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+      flex-shrink: 0;
+    }
+    .chart-tab svg    { width: 18px; height: 18px; }
+    .chart-tab.active { background: var(--accent-dim); border-color: var(--accent); color: var(--text); }
+    canvas { display: block; width: 100%; }
+
+    /* ═══════════════════════════════════════════════════════
+       SETTINGS OVERLAY / DRAWER
+    ════════════════════════════════════════════════════════*/
+    .s-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 500;
+      background: rgba(0, 0, 0, 0.55);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s;
+    }
+    .s-overlay.open { opacity: 1; pointer-events: all; }
+
+    .s-drawer {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: min(360px, 95%);
+      background: var(--bg);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      overflow: hidden;
+    }
+    .s-overlay.open .s-drawer { transform: translateX(0); }
+
+    .s-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 16px 14px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .s-head-title { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+    .s-close {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: color 0.12s, background 0.12s;
+    }
+    .s-close svg     { width: 16px; height: 16px; }
+    .s-close:active  { background: var(--surface2); color: var(--text); }
+
+    .s-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      padding-bottom: 40px;
+    }
+    .s-body::-webkit-scrollbar       { width: 3px; }
+    .s-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    /* shared settings group / row styles */
+    .sgroup { background: var(--surface); border-radius: var(--radius); overflow: hidden; }
+    .sgroup-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); padding: 13px 16px 6px; }
+    .srow { display: flex; align-items: center; padding: 11px 16px; border-top: 1px solid var(--border); gap: 12px; }
+    .srow:first-of-type { border-top: none; }
+    .srow label { flex: 1; font-size: 15px; }
+    .srow input[type=number] {
+      width: 72px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 15px;
+      font-family: var(--font);
+      padding: 6px 10px;
+      text-align: right;
+      transition: border-color 0.15s;
+    }
+    .srow input[type=number]:focus { outline: none; border-color: var(--accent); }
+    .srow input[type=number]::-webkit-outer-spin-button,
+    .srow input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
+    .srow input[type=number] { -moz-appearance: textfield; }
+
+    /* Cloud sync — auth controls inside the settings drawer */
+    .srow input[type=email] {
+      flex: 1;
+      min-width: 0;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      font-family: var(--font);
+      padding: 8px 10px;
+      transition: border-color 0.15s;
+    }
+    .srow input[type=email]:focus { outline: none; border-color: var(--accent); }
+    .sync-status {
+      flex: 1;
+      font-size: 13px;
+      color: var(--text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sync-status.signed-in { color: var(--accent); }
+
+    .action-btn {
+      width: 100%;
+      padding: 15px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 15px;
+      font-family: var(--font);
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.12s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .action-btn:active  { background: var(--surface2); }
+    .action-btn.danger  { color: var(--danger); border-color: #3d1f1f; }
+    .action-btn svg     { width: 18px; height: 18px; flex-shrink: 0; }
+
+    /* ── Toast ───────────────────────────────────────────── */
+    #toast {
+      position: fixed;
+      bottom: calc(var(--nav-h) + 14px);
+      left: 50%;
+      transform: translateX(-50%) translateY(8px);
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 9px 20px;
+      border-radius: 20px;
+      font-size: 14px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s, transform 0.2s;
+      white-space: nowrap;
+      z-index: 300;
+    }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════
+     LOG SCREEN
+════════════════════════════════════════════════════════ -->
+<div id="screen-log" class="screen active" role="main" aria-label="Log drinks">
+  <!-- Settings cog — top-right, intentionally sparse top area -->
+  <button class="cog-btn" id="open-settings" aria-label="Open settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+    </svg>
+  </button>
+
+  <!-- Content anchored to the bottom of the viewport -->
+  <div class="log-anchor">
+    <!-- Segmented weekly progress bar -->
+    <div class="week-bar">
+      <div class="week-bar-head">
+        <span>This week</span>
+        <span class="week-count" id="weekText">0 / 14</span>
+      </div>
+      <div class="prog-track">
+        <div class="prog-seg beer"   id="seg-beer"></div>
+        <div class="prog-seg wine"   id="seg-wine"></div>
+        <div class="prog-seg liquor" id="seg-liquor"></div>
+      </div>
+    </div>
+
+    <div class="drink-row">
+      <button class="drink-btn" id="beer-minus" aria-label="Remove beer">−</button>
+      <div class="label-wrap"><span class="drink-label beer" id="lbl-beer">Beer</span></div>
+      <button class="drink-btn" id="beer-plus"  aria-label="Add beer">+</button>
+    </div>
+
+    <div class="drink-row">
+      <button class="drink-btn" id="wine-minus" aria-label="Remove wine">−</button>
+      <div class="label-wrap"><span class="drink-label wine" id="lbl-wine">Wine</span></div>
+      <button class="drink-btn" id="wine-plus"  aria-label="Add wine">+</button>
+    </div>
+
+    <div class="drink-row">
+      <button class="drink-btn" id="liquor-minus" aria-label="Remove liquor">−</button>
+      <div class="label-wrap"><span class="drink-label liquor" id="lbl-liquor">Liquor</span></div>
+      <button class="drink-btn" id="liquor-plus"  aria-label="Add liquor">+</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     HISTORY SCREEN
+════════════════════════════════════════════════════════ -->
+<div id="screen-history" class="screen" role="main" aria-label="History">
+  <h1 class="screen-title">History</h1>
+
+  <!-- Monthly calendar -->
+  <div class="cal-wrap">
+    <div class="cal-nav">
+      <button class="cal-nav-btn" id="cal-prev" aria-label="Previous month">‹</button>
+      <span id="cal-month-label">May 2026</span>
+      <button class="cal-nav-btn" id="cal-next" aria-label="Next month">›</button>
+    </div>
+    <div class="cal-dow">
+      <span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
+    </div>
+    <div id="cal-grid"></div>
+  </div>
+
+  <!-- Day-by-day log (filtered to selected month) -->
+  <div id="history-list"></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     STATS SCREEN
+════════════════════════════════════════════════════════ -->
+<div id="screen-stats" class="screen" role="main" aria-label="Stats">
+  <h1 class="screen-title">Stats</h1>
+  <div class="filter-row">
+    <button class="filter-btn active" data-period="week">Week</button>
+    <button class="filter-btn" data-period="month">Month</button>
+    <button class="filter-btn" data-period="year">Year</button>
+  </div>
+  <div class="stat-grid">
+    <div class="stat-card"><div class="stat-val" id="s-drinks">0</div><div class="stat-lbl">Drinks</div></div>
+    <div class="stat-card"><div class="stat-val" id="s-free">0</div><div class="stat-lbl">Free Days</div></div>
+    <div class="stat-card"><div class="stat-val" id="s-cal">0</div><div class="stat-lbl">Calories</div></div>
+    <div class="stat-card"><div class="stat-val" id="s-cost">$0</div><div class="stat-lbl">Spent</div></div>
+  </div>
+  <div class="chart-box">
+    <div class="chart-head">
+      <span class="chart-title">Breakdown</span>
+      <div class="chart-tabs">
+        <button class="chart-tab active" id="tab-bar" aria-label="Bar chart" title="Bar">
+          <svg viewBox="0 0 20 20" fill="currentColor"><rect x="2" y="9" width="4" height="9" rx="1"/><rect x="8" y="5" width="4" height="13" rx="1"/><rect x="14" y="2" width="4" height="16" rx="1"/></svg>
+        </button>
+        <button class="chart-tab" id="tab-doughnut" aria-label="Doughnut chart" title="Doughnut">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="4"><circle cx="10" cy="10" r="5.5"/></svg>
+        </button>
+        <button class="chart-tab" id="tab-line" aria-label="Line chart" title="Line">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,15 6,9 10,13 14,5 18,8"/></svg>
+        </button>
+      </div>
+    </div>
+    <canvas id="chart" height="240"></canvas>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     BOTTOM NAVIGATION
+════════════════════════════════════════════════════════ -->
+<nav aria-label="Main navigation">
+  <button class="active" data-screen="log" aria-label="Log">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+    Log
+  </button>
+  <button data-screen="history" aria-label="History">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+    History
+  </button>
+  <button data-screen="stats" aria-label="Stats">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+    Stats
+  </button>
+</nav>
+
+<!-- ══════════════════════════════════════════════════════
+     SETTINGS DRAWER  (slide-in overlay)
+════════════════════════════════════════════════════════ -->
+<div id="settings-overlay" class="s-overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-label="Settings">
+  <div class="s-drawer">
+    <div class="s-head">
+      <span class="s-head-title">Settings</span>
+      <button class="s-close" id="close-settings" aria-label="Close settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="s-body">
+      <div class="sgroup">
+        <div class="sgroup-title">Cost per drink</div>
+        <div class="srow"><label for="c-beer">Beer</label><input id="c-beer" type="number" min="0" step="0.5" inputmode="decimal"></div>
+        <div class="srow"><label for="c-wine">Wine</label><input id="c-wine" type="number" min="0" step="0.5" inputmode="decimal"></div>
+        <div class="srow"><label for="c-liquor">Liquor</label><input id="c-liquor" type="number" min="0" step="0.5" inputmode="decimal"></div>
+      </div>
+      <div class="sgroup">
+        <div class="sgroup-title">Calories per drink</div>
+        <div class="srow"><label for="k-beer">Beer</label><input id="k-beer" type="number" min="0" step="5" inputmode="numeric"></div>
+        <div class="srow"><label for="k-wine">Wine</label><input id="k-wine" type="number" min="0" step="5" inputmode="numeric"></div>
+        <div class="srow"><label for="k-liquor">Liquor</label><input id="k-liquor" type="number" min="0" step="5" inputmode="numeric"></div>
+      </div>
+      <div class="sgroup">
+        <div class="sgroup-title">Goal</div>
+        <div class="srow"><label for="wk-limit">Weekly limit</label><input id="wk-limit" type="number" min="1" step="1" inputmode="numeric"></div>
+      </div>
+      <div class="sgroup" id="sync-group">
+        <div class="sgroup-title">Cloud sync</div>
+        <div class="srow"><span class="sync-status" id="sync-status">Not signed in</span></div>
+        <div class="srow" id="auth-email-row">
+          <input id="auth-email" type="email" placeholder="email@example.com" autocomplete="email" inputmode="email">
+        </div>
+      </div>
+      <button class="action-btn" id="btn-auth">Send magic link</button>
+      <button class="action-btn" id="btn-export">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export data as JSON
+      </button>
+      <button class="action-btn" id="btn-import">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Import data from JSON
+      </button>
+      <button class="action-btn danger" id="btn-clear">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        Clear all data
+      </button>
+      <input type="file" id="file-in" accept=".json" style="display:none" aria-hidden="true">
+    </div>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<!-- Vendored Dexie (IndexedDB wrapper). Kept local so the app
+     works fully offline from the very first install — no CDN
+     dependency, no first-load network requirement. -->
+<script src="dexie.min.js"></script>
+
+<!-- Supabase JS client (cloud sync — optional). Fetched from a
+     CDN; the service worker caches it on first online load so
+     subsequent loads work offline. If unreachable on first run,
+     sync silently disables and the app keeps working. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" crossorigin="anonymous"></script>
+
+<!-- Local Supabase config + sync layer. This file is gitignored
+     (it carries connection keys). If missing, window.CloudSync
+     stays unset and the app runs fully offline as before. -->
+<script src="supabase.js" onerror="console.info('supabase.js not present — cloud sync disabled')"></script>
+<script>
+'use strict';
+
+/* ══════════════════════════════════════════════════════════
+   Sip Tracker — single-file PWA
+
+   Architecture
+   ─────────────
+   • All persistence flows through the `Storage` object, which
+     wraps Dexie (IndexedDB). UI code never touches IndexedDB
+     directly. Phase 2 (Supabase cloud sync) will wrap Storage
+     without rewriting renderers or event handlers.
+   • Drinks + settings are mirrored in memory for instant UI
+     updates; writes dispatch to IndexedDB asynchronously.
+   • A one-time silent migration moves data from the old
+     localStorage keys (sip_drinks, sip_settings) into the
+     new Dexie tables.
+   ══════════════════════════════════════════════════════════ */
+
+
+/* ── Constants ─────────────────────────────────────────── */
+const TYPES   = ['beer', 'wine', 'liquor'];
+const NAMES   = { beer: 'Beer',  wine: 'Wine',  liquor: 'Liquor'  };
+const PLURAL  = { beer: 'Beers', wine: 'Wines', liquor: 'Liquors' };
+
+const DEFAULTS = {
+  costs:       { beer: 8,   wine: 12,  liquor: 12  },
+  calories:    { beer: 150, wine: 120, liquor: 100 },
+  weeklyLimit: 14
+};
+
+const CLR = {
+  beer: '#f59e0b', wine: '#e0557a', liquor: '#60a5fa',
+  border: '#2e2e3d', muted: '#8080a0', text: '#e8e8f0', bg: '#0f0f13'
+};
+
+const MONTH_NAMES = [
+  'January','February','March','April','May','June',
+  'July','August','September','October','November','December'
+];
+
+
+/* ══════════════════════════════════════════════════════════
+   Storage — data access layer over Dexie
+   The rest of the app should only call these methods.
+   ══════════════════════════════════════════════════════════ */
+
+const db = new Dexie('sip-tracker');
+db.version(1).stores({
+  // drinks: string-UUID primary key, indexed on type and timestamp
+  // (UUIDs over autoincrement so future device sync can't collide).
+  drinks: 'id, type, timestamp',
+  // meta: simple key/value bag. Currently the only row is 'settings'.
+  meta:   'key'
+});
+
+const Storage = {
+  /** One-time silent migration from the pre-Dexie localStorage keys. */
+  async init() {
+    try {
+      const oldDrinks   = localStorage.getItem('sip_drinks');
+      const oldSettings = localStorage.getItem('sip_settings');
+      if (!oldDrinks && !oldSettings) return;
+
+      if (oldDrinks) {
+        const arr = JSON.parse(oldDrinks);
+        if (Array.isArray(arr) && arr.length) await db.drinks.bulkPut(arr);
+        localStorage.removeItem('sip_drinks');
+      }
+      if (oldSettings) {
+        const s = JSON.parse(oldSettings);
+        if (s && typeof s === 'object') {
+          await db.meta.put({ key: 'settings', value: s });
+        }
+        localStorage.removeItem('sip_settings');
+      }
+    } catch (err) {
+      // Failure here must never brick the app — fall back to an empty store.
+      console.warn('localStorage → IndexedDB migration failed:', err);
+    }
+  },
+
+  loadDrinks()       { return db.drinks.toArray(); },
+  addDrink(drink)    { return db.drinks.put(drink); },
+  deleteDrink(id)    { return db.drinks.delete(id); },
+  clearDrinks()      { return db.drinks.clear(); },
+
+  /** Atomic clear + bulkPut, used by import. */
+  replaceDrinks(arr) {
+    return db.transaction('rw', db.drinks, async () => {
+      await db.drinks.clear();
+      if (arr.length) await db.drinks.bulkPut(arr);
+    });
+  },
+
+  async loadSettings() {
+    const row = await db.meta.get('settings');
+    return row ? row.value : null;
+  },
+  saveSettings(s) { return db.meta.put({ key: 'settings', value: s }); }
+};
+
+
+/* ── In-memory mirror of persisted state ───────────────── */
+/* These are reassigned during boot once Dexie has loaded.   */
+let drinks   = [];
+let settings = mergeSettings(null);
+
+function mergeSettings(raw) {
+  raw = raw || {};
+  return {
+    costs:       { ...DEFAULTS.costs,    ...(raw.costs    || {}) },
+    calories:    { ...DEFAULTS.calories, ...(raw.calories || {}) },
+    weeklyLimit: raw.weeklyLimit ?? DEFAULTS.weeklyLimit
+  };
+}
+
+
+/* ── Navigation ────────────────────────────────────────── */
+const screens = document.querySelectorAll('.screen');
+const navBtns = document.querySelectorAll('nav button');
+
+function navigate(name) {
+  closeSettings();
+  screens.forEach(s => s.classList.toggle('active', s.id === 'screen-' + name));
+  navBtns.forEach(b => b.classList.toggle('active', b.dataset.screen === name));
+  if (name === 'history') renderHistory();
+  if (name === 'stats')   renderStats();
+}
+navBtns.forEach(b => b.addEventListener('click', () => navigate(b.dataset.screen)));
+
+
+/* ── Toast ─────────────────────────────────────────────── */
+let toastTid;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTid);
+  toastTid = setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+
+/* ── Label flash ───────────────────────────────────────── */
+const flashTids = {};
+function flashLabel(type, count) {
+  const el = document.getElementById('lbl-' + type);
+  clearTimeout(flashTids[type]);
+  el.style.transition = 'none';
+  el.style.opacity    = '0';
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    el.textContent      = String(count);
+    el.style.transition = 'opacity 0.18s ease';
+    el.style.opacity    = '1';
+    flashTids[type] = setTimeout(() => {
+      el.style.transition = 'opacity 0.28s ease';
+      el.style.opacity    = '0';
+      setTimeout(() => {
+        el.textContent      = NAMES[type];
+        el.style.transition = 'opacity 0.28s ease';
+        el.style.opacity    = '1';
+      }, 280);
+    }, 850);
+  }));
+}
+
+
+/* ── +1 / −1 floating indicator ────────────────────────── */
+function showFloat(btn, delta, type) {
+  const el = document.createElement('div');
+  el.className   = 'drink-float';
+  el.textContent = delta > 0 ? '+1' : '−1';
+  el.style.color = delta > 0 ? `var(--${type})` : 'var(--text-muted)';
+
+  const rect = btn.getBoundingClientRect();
+  el.style.left = (rect.left + rect.width / 2) + 'px';
+  el.style.top  = (rect.top  - 4) + 'px';
+
+  document.body.appendChild(el);
+
+  // Double rAF: ensures element is painted before transition fires.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    el.style.transition = 'transform 0.6s cubic-bezier(0.2,0.8,0.4,1), opacity 0.55s ease-out';
+    el.style.transform  = 'translateX(-50%) translateY(-38px)';
+    el.style.opacity    = '0';
+    setTimeout(() => el.remove(), 700);
+  }));
+}
+
+
+/* ══════════════════════════════════════════════════════════
+   Log screen — add / remove drinks
+   ══════════════════════════════════════════════════════════ */
+
+function todayStr() { return new Date().toDateString(); }
+
+function countToday(type) {
+  const t = todayStr();
+  return drinks.filter(d => d.type === type && new Date(d.timestamp).toDateString() === t).length;
+}
+
+function addDrink(type) {
+  const entry = { id: uid(), type, timestamp: new Date().toISOString() };
+  drinks.push(entry);
+  // Fire-and-forget: UI is driven by the in-memory mirror, so we
+  // don't block on the write. Errors get surfaced to the console.
+  Storage.addDrink(entry).catch(err => console.warn('addDrink failed:', err));
+
+  flashLabel(type, countToday(type));
+  showFloat(document.getElementById(type + '-plus'), +1, type);
+  updateWeekBar();
+}
+
+function removeDrink(type) {
+  const t = todayStr();
+  for (let i = drinks.length - 1; i >= 0; i--) {
+    if (drinks[i].type === type && new Date(drinks[i].timestamp).toDateString() === t) {
+      const [removed] = drinks.splice(i, 1);
+      Storage.deleteDrink(removed.id).catch(err => console.warn('removeDrink failed:', err));
+      flashLabel(type, countToday(type));
+      showFloat(document.getElementById(type + '-minus'), -1, type);
+      updateWeekBar();
+      return;
+    }
+  }
+  // Nothing to remove — still give the user feedback.
+  flashLabel(type, 0);
+  showFloat(document.getElementById(type + '-minus'), -1, type);
+}
+
+TYPES.forEach(type => {
+  document.getElementById(type + '-plus' ).addEventListener('click', () => addDrink(type));
+  document.getElementById(type + '-minus').addEventListener('click', () => removeDrink(type));
+});
+
+
+/* ── Segmented week bar ────────────────────────────────── */
+function weekStart() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - d.getDay()); // back to Sunday
+  return d;
+}
+
+function updateWeekBar() {
+  const ws  = weekStart().getTime();
+  const cnt = { beer: 0, wine: 0, liquor: 0 };
+
+  for (const entry of drinks) {
+    if (new Date(entry.timestamp).getTime() >= ws && cnt[entry.type] !== undefined) {
+      cnt[entry.type]++;
+    }
+  }
+
+  const total = cnt.beer + cnt.wine + cnt.liquor;
+  const lim   = settings.weeklyLimit || DEFAULTS.weeklyLimit;
+
+  // If we're over the limit, scale segments proportionally so the
+  // bar still fills exactly 100% rather than overflowing.
+  const scale = total > lim ? lim / total : 1;
+
+  for (const type of TYPES) {
+    const seg = document.getElementById('seg-' + type);
+    if (seg) seg.style.width = ((cnt[type] / lim) * 100 * scale).toFixed(2) + '%';
+  }
+
+  const wt = document.getElementById('weekText');
+  if (wt) {
+    wt.textContent = `${total} / ${lim}`;
+    wt.classList.toggle('over', total > lim);
+  }
+}
+
+
+/* ══════════════════════════════════════════════════════════
+   History screen
+   ══════════════════════════════════════════════════════════ */
+
+let calYear  = new Date().getFullYear();
+let calMonth = new Date().getMonth();   // 0-indexed
+
+function groupByDay(arr) {
+  const m = {};
+  arr.forEach(d => {
+    const k = new Date(d.timestamp).toDateString();
+    if (!m[k]) m[k] = { beer: 0, wine: 0, liquor: 0 };
+    m[k][d.type]++;
+  });
+  return m;
+}
+
+function fmtDate(str) {
+  const today     = todayStr();
+  const yesterday = new Date(Date.now() - 864e5).toDateString();
+  if (str === today)     return 'Today';
+  if (str === yesterday) return 'Yesterday';
+  return new Date(str).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+function pluralize(type, count) {
+  return count === 1 ? NAMES[type] : PLURAL[type];
+}
+
+function renderCalendar() {
+  document.getElementById('cal-month-label').textContent = `${MONTH_NAMES[calMonth]} ${calYear}`;
+
+  const firstDoW    = new Date(calYear, calMonth, 1).getDay();
+  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+  const todayD      = new Date();
+
+  // Per-day drink counts for the displayed month.
+  const dayCnt = {};
+  for (const entry of drinks) {
+    const dt = new Date(entry.timestamp);
+    if (dt.getFullYear() === calYear && dt.getMonth() === calMonth) {
+      const d = dt.getDate();
+      dayCnt[d] = (dayCnt[d] || 0) + 1;
+    }
+  }
+
+  const grid = document.getElementById('cal-grid');
+  grid.innerHTML = '';
+
+  // Leading empty cells — keep the same internal stack as day cells
+  // (number + dot) so vertical rhythm stays aligned.
+  for (let i = 0; i < firstDoW; i++) {
+    const emp = document.createElement('div');
+    emp.className = 'cal-cell cal-empty';
+    const num = document.createElement('span');
+    num.className = 'cal-num';
+    const dot = document.createElement('span');
+    dot.className = 'cal-dot';
+    emp.appendChild(num);
+    emp.appendChild(dot);
+    grid.appendChild(emp);
+  }
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const cell = document.createElement('div');
+    cell.className = 'cal-cell';
+
+    const isToday = todayD.getFullYear() === calYear &&
+                    todayD.getMonth()    === calMonth &&
+                    todayD.getDate()     === d;
+    if (isToday) cell.classList.add('cal-today');
+
+    const numEl = document.createElement('span');
+    numEl.className   = 'cal-num';
+    numEl.textContent = d;
+    cell.appendChild(numEl);
+
+    const dotEl = document.createElement('span');
+    const count = dayCnt[d] || 0;
+    dotEl.className = 'cal-dot' + (count === 0 ? '' : count <= 2 ? ' lo' : count <= 5 ? ' mid' : ' hi');
+    cell.appendChild(dotEl);
+
+    grid.appendChild(cell);
+  }
+}
+
+function renderHistoryList() {
+  const monthDrinks = drinks.filter(entry => {
+    const dt = new Date(entry.timestamp);
+    return dt.getFullYear() === calYear && dt.getMonth() === calMonth;
+  });
+
+  const grouped = groupByDay(monthDrinks);
+  const days    = Object.keys(grouped).sort((a, b) => new Date(b) - new Date(a));
+  const el      = document.getElementById('history-list');
+
+  if (!days.length) {
+    el.innerHTML = '<p class="empty">No drinks logged this month.</p>';
+    return;
+  }
+
+  el.innerHTML = days.map(day => {
+    const g     = grouped[day];
+    const total = g.beer + g.wine + g.liquor;
+    const chips = TYPES
+      .filter(t => g[t] > 0)
+      .map(t => `<span class="chip"><span class="dot dot-${t}"></span>${g[t]}&nbsp;${pluralize(t, g[t])}</span>`)
+      .join('');
+    return `<div class="day-card">
+      <div class="day-head">
+        <span class="day-date">${fmtDate(day)}</span>
+        <span class="day-count">${total} drink${total !== 1 ? 's' : ''}</span>
+      </div>
+      <div class="chips">${chips}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderHistory() {
+  renderCalendar();
+  renderHistoryList();
+}
+
+document.getElementById('cal-prev').addEventListener('click', () => {
+  calMonth--;
+  if (calMonth < 0) { calMonth = 11; calYear--; }
+  renderHistory();
+});
+document.getElementById('cal-next').addEventListener('click', () => {
+  calMonth++;
+  if (calMonth > 11) { calMonth = 0; calYear++; }
+  renderHistory();
+});
+
+
+/* ══════════════════════════════════════════════════════════
+   Stats screen
+   ══════════════════════════════════════════════════════════ */
+
+let period    = 'week';
+let chartType = 'bar';
+
+function periodStart(p) {
+  const n = new Date();
+  if (p === 'week')  return weekStart();
+  if (p === 'month') return new Date(n.getFullYear(), n.getMonth(), 1);
+  return new Date(n.getFullYear(), 0, 1);
+}
+
+function filteredDrinks(p) {
+  const start = periodStart(p).getTime();
+  return drinks.filter(d => new Date(d.timestamp).getTime() >= start);
+}
+
+function freeDays(p, filtered) {
+  const start = periodStart(p);
+  const now   = new Date(); now.setHours(0, 0, 0, 0);
+  const total = Math.round((now - start) / 864e5) + 1;
+  const withDrinks = new Set(filtered.map(d => new Date(d.timestamp).toDateString())).size;
+  return Math.max(0, total - withDrinks);
+}
+
+function renderStats() {
+  const fd     = filteredDrinks(period);
+  const totalD = fd.length;
+  const totalC = fd.reduce((s, d) => s + (settings.calories[d.type] || 0), 0);
+  const totalK = fd.reduce((s, d) => s + (settings.costs[d.type]    || 0), 0);
+  const fDays  = freeDays(period, fd);
+
+  document.getElementById('s-drinks').textContent = totalD;
+  document.getElementById('s-free'  ).textContent = fDays;
+  document.getElementById('s-cal'   ).textContent = totalC.toLocaleString();
+  document.getElementById('s-cost'  ).textContent = '$' + totalK.toFixed(0);
+
+  requestAnimationFrame(() => drawChart(fd));
+}
+
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    period = btn.dataset.period;
+    renderStats();
+  });
+});
+
+['bar', 'doughnut', 'line'].forEach(t => {
+  document.getElementById('tab-' + t).addEventListener('click', () => {
+    ['bar','doughnut','line'].forEach(x => document.getElementById('tab-' + x).classList.remove('active'));
+    document.getElementById('tab-' + t).classList.add('active');
+    chartType = t;
+    renderStats();
+  });
+});
+
+window.addEventListener('resize', () => {
+  if (document.getElementById('screen-stats').classList.contains('active')) renderStats();
+});
+
+
+/* ══════════════════════════════════════════════════════════
+   Charts (hand-rolled canvas — no library)
+   ══════════════════════════════════════════════════════════ */
+
+const CHART_H = 240;
+const CH_PB   = 44;     // bottom padding: room for x-axis labels + legend
+
+function drawChart(fd) {
+  const canvas = document.getElementById('chart');
+  const ctx    = canvas.getContext('2d');
+  const dpr    = window.devicePixelRatio || 1;
+  const W      = canvas.offsetWidth || 300;
+
+  canvas.width  = W * dpr;
+  canvas.height = CHART_H * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, CHART_H);
+
+  if      (chartType === 'bar')      drawBar(ctx, fd, W);
+  else if (chartType === 'doughnut') drawDoughnut(ctx, fd, W);
+  else                               drawLine(ctx, fd, W);
+}
+
+function buildPeriodData(fd, p) {
+  const now    = new Date();
+  const labels = [];
+  const groups = {};
+
+  if (p === 'week') {
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now); d.setDate(d.getDate() - i); d.setHours(0,0,0,0);
+      const k = d.toDateString();
+      labels.push({ k, lbl: ['Su','Mo','Tu','We','Th','Fr','Sa'][d.getDay()] });
+      groups[k] = { beer: 0, wine: 0, liquor: 0 };
+    }
+    fd.forEach(d => { const k = new Date(d.timestamp).toDateString(); if (groups[k]) groups[k][d.type]++; });
+
+  } else if (p === 'month') {
+    for (let i = now.getDate() - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      const k = d.toDateString();
+      labels.push({ k, lbl: String(d.getDate()) });
+      groups[k] = { beer: 0, wine: 0, liquor: 0 };
+    }
+    fd.forEach(d => { const k = new Date(d.timestamp).toDateString(); if (groups[k]) groups[k][d.type]++; });
+
+  } else {
+    for (let m = 0; m <= now.getMonth(); m++) {
+      const k = `${now.getFullYear()}-${m}`;
+      labels.push({ k, lbl: MONTH_NAMES[m][0] });
+      groups[k] = { beer: 0, wine: 0, liquor: 0 };
+    }
+    fd.forEach(d => {
+      const dt = new Date(d.timestamp);
+      if (dt.getFullYear() === now.getFullYear()) {
+        const k = `${dt.getFullYear()}-${dt.getMonth()}`;
+        if (groups[k]) groups[k][d.type]++;
+      }
+    });
+  }
+  return { labels, groups };
+}
+
+function drawLegend(ctx, W, H) {
+  const items  = [['beer','Beer'],['wine','Wine'],['liquor','Liquor']];
+  const itemW  = 66;
+  const startX = (W - items.length * itemW) / 2;
+  const y      = H - 11;
+  items.forEach(([type, name], i) => {
+    const x = startX + i * itemW;
+    ctx.fillStyle = CLR[type];
+    ctx.beginPath(); ctx.arc(x + 5, y, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle    = CLR.muted;
+    ctx.font         = '10px sans-serif';
+    ctx.textAlign    = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(name, x + 13, y);
+  });
+}
+
+function drawBar(ctx, fd, W) {
+  const H  = CHART_H;
+  const pL = 26, pR = 8, pT = 8, pB = CH_PB;
+  const cW = W - pL - pR;
+  const cH = H - pT - pB;
+  const { labels, groups } = buildPeriodData(fd, period);
+  const n = labels.length;
+
+  const maxVal = Math.max(1, ...labels.map(l =>
+    groups[l.k].beer + groups[l.k].wine + groups[l.k].liquor
+  ));
+
+  ctx.strokeStyle = CLR.border; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pT + cH - (i / 4) * cH;
+    ctx.beginPath(); ctx.moveTo(pL, y); ctx.lineTo(W - pR, y); ctx.stroke();
+    if (i > 0) {
+      ctx.fillStyle = CLR.muted; ctx.font = '9px sans-serif';
+      ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ctx.fillText(Math.round((i / 4) * maxVal), pL - 4, y);
+    }
+  }
+
+  const slotW     = cW / n;
+  const barW      = Math.max(4, Math.min(slotW * 0.65, 28));
+  const showEvery = n > 15 ? Math.ceil(n / 10) : 1;
+
+  labels.forEach(({ k, lbl }, i) => {
+    const g = groups[k];
+    const x = pL + i * slotW + slotW / 2 - barW / 2;
+    let yBot = pT + cH;
+    TYPES.forEach(type => {
+      const v = g[type] || 0; if (!v) return;
+      const bH = (v / maxVal) * cH; yBot -= bH;
+      ctx.fillStyle = CLR[type];
+      roundRect(ctx, x, yBot, barW, bH, [Math.min(3, barW/2), Math.min(3, barW/2), 0, 0]);
+      ctx.fill();
+    });
+    if (i % showEvery === 0 || i === n - 1) {
+      ctx.fillStyle = CLR.muted; ctx.font = '9px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      ctx.fillText(lbl, pL + i * slotW + slotW / 2, pT + cH + 13);
+    }
+  });
+  drawLegend(ctx, W, H);
+}
+
+function drawDoughnut(ctx, fd, W) {
+  const H      = CHART_H;
+  const counts = { beer: 0, wine: 0, liquor: 0 };
+  fd.forEach(d => counts[d.type]++);
+  const total  = counts.beer + counts.wine + counts.liquor;
+  const legendH = 22;
+  const cx = W / 2, cy = (H - legendH) / 2;
+  const r  = Math.min(cx, cy) - 12;
+
+  if (!total) {
+    ctx.fillStyle = CLR.muted; ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('No data for this period', cx, cy);
+    drawLegend(ctx, W, H); return;
+  }
+
+  let angle = -Math.PI / 2;
+  TYPES.forEach(type => {
+    const n = counts[type]; if (!n) return;
+    const sweep = (n / total) * Math.PI * 2;
+    ctx.beginPath(); ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, angle, angle + sweep); ctx.closePath();
+    ctx.fillStyle = CLR[type]; ctx.fill();
+    ctx.strokeStyle = CLR.bg; ctx.lineWidth = 2; ctx.stroke();
+    if (n / total > 0.07) {
+      const mid = angle + sweep / 2;
+      ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(n, cx + r * 0.62 * Math.cos(mid), cy + r * 0.62 * Math.sin(mid));
+    }
+    angle += sweep;
+  });
+  ctx.beginPath(); ctx.arc(cx, cy, r * 0.4, 0, Math.PI * 2);
+  ctx.fillStyle = CLR.bg; ctx.fill();
+  ctx.fillStyle = CLR.text; ctx.font = 'bold 20px sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(total, cx, cy - 5);
+  ctx.font = '10px sans-serif'; ctx.fillStyle = CLR.muted;
+  ctx.fillText('total', cx, cy + 12);
+  drawLegend(ctx, W, H);
+}
+
+function drawLine(ctx, fd, W) {
+  const H  = CHART_H;
+  const pL = 26, pR = 8, pT = 14, pB = CH_PB;
+  const cW = W - pL - pR, cH = H - pT - pB;
+  const { labels, groups } = buildPeriodData(fd, period);
+  const n = labels.length;
+
+  const maxVal = Math.max(1, ...labels.flatMap(l => TYPES.map(t => groups[l.k][t] || 0)));
+
+  ctx.strokeStyle = CLR.border; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pT + cH - (i / 4) * cH;
+    ctx.beginPath(); ctx.moveTo(pL, y); ctx.lineTo(W - pR, y); ctx.stroke();
+    if (i > 0) {
+      ctx.fillStyle = CLR.muted; ctx.font = '9px sans-serif';
+      ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ctx.fillText(Math.round((i / 4) * maxVal), pL - 4, y);
+    }
+  }
+
+  const xOf = i => pL + (n < 2 ? cW / 2 : i * cW / (n - 1));
+  const yOf = v => pT + cH - (v / maxVal) * cH;
+  const showEvery = n > 15 ? Math.ceil(n / 10) : 1;
+
+  labels.forEach(({ lbl }, i) => {
+    if (i % showEvery !== 0 && i !== n - 1) return;
+    ctx.fillStyle = CLR.muted; ctx.font = '9px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText(lbl, xOf(i), pT + cH + 13);
+  });
+
+  TYPES.forEach(type => {
+    ctx.beginPath();
+    ctx.strokeStyle = CLR[type]; ctx.lineWidth = 2;
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    labels.forEach(({ k }, i) => {
+      const v = groups[k][type] || 0;
+      i === 0 ? ctx.moveTo(xOf(i), yOf(v)) : ctx.lineTo(xOf(i), yOf(v));
+    });
+    ctx.stroke();
+    labels.forEach(({ k }, i) => {
+      const v = groups[k][type] || 0; if (!v) return;
+      ctx.beginPath(); ctx.arc(xOf(i), yOf(v), 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = CLR[type]; ctx.fill();
+      ctx.strokeStyle = CLR.bg; ctx.lineWidth = 1.5; ctx.stroke();
+    });
+  });
+  drawLegend(ctx, W, H);
+}
+
+function roundRect(ctx, x, y, w, h, radii) {
+  const [tl, tr, br, bl] = Array.isArray(radii) ? radii : [radii,radii,radii,radii];
+  ctx.beginPath();
+  ctx.moveTo(x+tl, y); ctx.lineTo(x+w-tr, y);
+  ctx.quadraticCurveTo(x+w, y,   x+w, y+tr);
+  ctx.lineTo(x+w, y+h-br);
+  ctx.quadraticCurveTo(x+w, y+h, x+w-br, y+h);
+  ctx.lineTo(x+bl, y+h);
+  ctx.quadraticCurveTo(x, y+h,   x, y+h-bl);
+  ctx.lineTo(x, y+tl);
+  ctx.quadraticCurveTo(x, y,     x+tl, y);
+  ctx.closePath();
+}
+
+
+/* ══════════════════════════════════════════════════════════
+   Settings drawer
+   ══════════════════════════════════════════════════════════ */
+
+const settingsOverlay = document.getElementById('settings-overlay');
+
+function openSettings() {
+  loadSettingsUI();
+  settingsOverlay.classList.add('open');
+  settingsOverlay.setAttribute('aria-hidden', 'false');
+}
+function closeSettings() {
+  settingsOverlay.classList.remove('open');
+  settingsOverlay.setAttribute('aria-hidden', 'true');
+}
+
+document.getElementById('open-settings' ).addEventListener('click', openSettings);
+document.getElementById('close-settings').addEventListener('click', closeSettings);
+settingsOverlay.addEventListener('click', e => {
+  if (e.target === settingsOverlay) closeSettings();
+});
+
+function loadSettingsUI() {
+  document.getElementById('c-beer'   ).value = settings.costs.beer;
+  document.getElementById('c-wine'   ).value = settings.costs.wine;
+  document.getElementById('c-liquor' ).value = settings.costs.liquor;
+  document.getElementById('k-beer'   ).value = settings.calories.beer;
+  document.getElementById('k-wine'   ).value = settings.calories.wine;
+  document.getElementById('k-liquor' ).value = settings.calories.liquor;
+  document.getElementById('wk-limit' ).value = settings.weeklyLimit;
+}
+
+function collectSettings() {
+  const v = id => parseFloat(document.getElementById(id).value);
+  settings = {
+    costs: {
+      beer:   v('c-beer')   || DEFAULTS.costs.beer,
+      wine:   v('c-wine')   || DEFAULTS.costs.wine,
+      liquor: v('c-liquor') || DEFAULTS.costs.liquor
+    },
+    calories: {
+      beer:   v('k-beer')   || DEFAULTS.calories.beer,
+      wine:   v('k-wine')   || DEFAULTS.calories.wine,
+      liquor: v('k-liquor') || DEFAULTS.calories.liquor
+    },
+    weeklyLimit: Math.max(1,
+      parseInt(document.getElementById('wk-limit').value) || DEFAULTS.weeklyLimit
+    )
+  };
+  Storage.saveSettings(settings).catch(err => console.warn('saveSettings failed:', err));
+  updateWeekBar();
+  toast('Settings saved');
+}
+
+// On mobile, both `change` and `blur` can fire when dismissing the
+// keyboard. Coalesce into one save with a short debounce.
+let collectTid;
+function scheduleCollectSettings() {
+  clearTimeout(collectTid);
+  collectTid = setTimeout(collectSettings, 80);
+}
+document.querySelectorAll('.srow input').forEach(inp => {
+  inp.addEventListener('change', scheduleCollectSettings);
+  inp.addEventListener('blur',   scheduleCollectSettings);
+});
+
+
+/* ══════════════════════════════════════════════════════════
+   Export / Import / Clear
+   ══════════════════════════════════════════════════════════ */
+
+document.getElementById('btn-export').addEventListener('click', () => {
+  const blob = new Blob(
+    [JSON.stringify({ version: 1, drinks, settings }, null, 2)],
+    { type: 'application/json' }
+  );
+  const url = URL.createObjectURL(blob);
+  Object.assign(document.createElement('a'), {
+    href: url,
+    download: `sip-tracker-${new Date().toISOString().slice(0,10)}.json`
+  }).click();
+  URL.revokeObjectURL(url);
+  toast('Data exported');
+});
+
+document.getElementById('btn-import').addEventListener('click', () =>
+  document.getElementById('file-in').click()
+);
+
+document.getElementById('file-in').addEventListener('change', async e => {
+  const file = e.target.files[0]; if (!file) return;
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+
+    if (Array.isArray(data.drinks)) {
+      drinks = data.drinks;
+      await Storage.replaceDrinks(drinks);
+    }
+    if (data.settings) {
+      settings = mergeSettings(data.settings);
+      await Storage.saveSettings(settings);
+    }
+    updateWeekBar();
+    loadSettingsUI();
+    toast(`Imported ${drinks.length} entries`);
+  } catch {
+    toast('Invalid JSON file');
+  } finally {
+    e.target.value = '';
+  }
+});
+
+document.getElementById('btn-clear').addEventListener('click', async () => {
+  if (!confirm('Delete all drink history? This cannot be undone.')) return;
+  drinks = [];
+  try { await Storage.clearDrinks(); }
+  catch (err) { console.warn('clearDrinks failed:', err); }
+  updateWeekBar();
+  toast('All data cleared');
+});
+
+
+/* ── Utilities ─────────────────────────────────────────── */
+function uid() {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+      });
+}
+
+
+/* ── Service worker ────────────────────────────────────── */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () =>
+    navigator.serviceWorker.register('sw.js').catch(() => {})
+  );
+}
+
+
+/* ── Persistent storage ────────────────────────────────── */
+// Ask the browser not to evict our IndexedDB under storage pressure.
+// Browsers may grant silently or require user engagement first.
+if (navigator.storage && navigator.storage.persist) {
+  navigator.storage.persisted()
+    .then(already => already || navigator.storage.persist())
+    .catch(() => {});
+}
+
+
+/* ══════════════════════════════════════════════════════════
+   Cloud sync glue (wires CloudSync to Storage + auth UI)
+   ══════════════════════════════════════════════════════════ */
+
+function updateAuthUI(s) {
+  const statusEl = document.getElementById('sync-status');
+  const emailRow = document.getElementById('auth-email-row');
+  const authBtn  = document.getElementById('btn-auth');
+  if (!statusEl || !emailRow || !authBtn) return;
+
+  if (s.signedIn) {
+    let txt = s.email || 'Signed in';
+    if (s.syncing)      txt += ' · syncing';
+    else if (s.pending) txt += ` · ${s.pending} pending`;
+    else if (!s.online) txt += ' · offline';
+    statusEl.textContent = txt;
+    statusEl.classList.add('signed-in');
+    emailRow.style.display = 'none';
+    authBtn.textContent = 'Sign out';
+  } else {
+    statusEl.textContent = s.online ? 'Sign in to sync across devices' : 'Offline — sync paused';
+    statusEl.classList.remove('signed-in');
+    emailRow.style.display = '';
+    authBtn.textContent = 'Send magic link';
+  }
+}
+
+document.getElementById('btn-auth').addEventListener('click', async () => {
+  if (!window.CloudSync) { toast('Cloud sync not configured'); return; }
+  const s = window.CloudSync.getStatus();
+  if (s.signedIn) {
+    try { await window.CloudSync.signOut(); toast('Signed out'); }
+    catch (err) { console.warn(err); toast('Sign out failed'); }
+  } else {
+    const email = document.getElementById('auth-email').value.trim();
+    if (!email || !email.includes('@')) { toast('Enter your email'); return; }
+    try {
+      await window.CloudSync.signIn(email);
+      document.getElementById('auth-email').value = '';
+      toast('Check your email for the link');
+    } catch (err) {
+      console.warn(err);
+      toast('Could not send link');
+    }
+  }
+});
+
+
+/* ══════════════════════════════════════════════════════════
+   Boot — load persisted state, then paint
+   ══════════════════════════════════════════════════════════ */
+
+(async function boot() {
+  try {
+    await Storage.init();
+    drinks   = await Storage.loadDrinks();
+    settings = mergeSettings(await Storage.loadSettings());
+  } catch (err) {
+    console.error('Storage initialization failed:', err);
+    toast('Could not load saved data');
+  }
+  updateWeekBar();
+
+  // Wire up cloud sync if the optional supabase.js + SDK loaded.
+  if (window.CloudSync) {
+    try {
+      await window.CloudSync.init({
+        db, Storage, mergeSettings,
+        drinks:      () => drinks,
+        setDrinks:   d => { drinks   = d; },
+        settings:    () => settings,
+        setSettings: s => { settings = s; },
+        rerenderAll: () => {
+          updateWeekBar();
+          loadSettingsUI();
+          if (document.getElementById('screen-history').classList.contains('active')) renderHistory();
+          if (document.getElementById('screen-stats'  ).classList.contains('active')) renderStats();
+        }
+      });
+      window.CloudSync.onStatusChange(updateAuthUI);
+    } catch (err) {
+      console.warn('CloudSync init failed:', err);
+    }
+  } else {
+    // No sync available — hide the auth UI rather than show a stale state.
+    const g = document.getElementById('sync-group');
+    const b = document.getElementById('btn-auth');
+    if (g) g.style.display = 'none';
+    if (b) b.style.display = 'none';
+  }
+})();
+</script>
+</body>
+</html>

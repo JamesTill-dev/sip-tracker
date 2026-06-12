@@ -1,0 +1,32 @@
+# ── Local Supabase config ──────────────────────────────────
+# Holds the project URL and anon key. Anon keys are public-safe
+# (they're served to every browser), but we keep this file out
+# of git so forks/clones don't accidentally inherit someone
+# else's project. Each developer creates their own supabase.js
+# from the template in the README.
+supabase.js
+
+# ── Environment / secrets (in case any get added later) ────
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ── OS junk ────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Editor / IDE ───────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Logs / build noise ─────────────────────────────────────
+*.log
+node_modules/
+dist/
+build/
