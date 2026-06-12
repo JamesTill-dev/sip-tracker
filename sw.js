@@ -8,7 +8,7 @@
  * Bump CACHE whenever the precache list or any cached asset
  * changes — the activate step deletes every other cache. */
 
-const CACHE = 'sip-v3';
+const CACHE = 'sip-v4';
 
 // Relative paths so the app works from any subdirectory
 // (GitHub Pages user/project sites, local file servers, etc.).

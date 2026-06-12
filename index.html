@@ -432,7 +432,18 @@
     ════════════════════════════════════════════════════════*/
     .s-overlay {
       position: fixed;
-      inset: 0;
+      /* iOS Safari: position:fixed resolves against the LAYOUT
+         viewport, which extends behind the URL bar / home indicator.
+         Using inset:0 there makes the drawer taller than the visible
+         area, so its bottom (and the scroll region's end) hides
+         under the URL bar. Pin to the dynamic viewport height so
+         the drawer ends exactly at the visible bottom. 100vh is the
+         fallback for browsers without dvh support. */
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100vh;
+      height: 100dvh;
       z-index: 500;
       background: rgba(0, 0, 0, 0.55);
       opacity: 0;
@@ -484,7 +495,21 @@
 
     .s-body {
       flex: 1;
+      /* iOS Safari: flex children default to min-height:auto, which
+         forces the element to be at least as tall as its intrinsic
+         content. That defeats overflow-y:auto — the body grows past
+         the drawer instead of scrolling. Override to 0 so flex can
+         actually shrink it to the available space and scroll kicks
+         in. Desktop hides this bug only because the viewport is
+         tall enough that content fits without overflow. */
+      min-height: 0;
       overflow-y: auto;
+      /* Older iOS Safari (< 13) needs this for momentum scroll;
+         harmless elsewhere. */
+      -webkit-overflow-scrolling: touch;
+      /* Explicitly allow vertical pan so iOS doesn't swallow the
+         touch for some other gesture (e.g. swipe-to-go-back). */
+      touch-action: pan-y;
       padding: 16px;
       display: flex;
       flex-direction: column;
