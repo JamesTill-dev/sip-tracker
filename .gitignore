@@ -1,10 +1,3 @@
-# ── Local Supabase config ──────────────────────────────────
-# Holds the project URL and anon key. Anon keys are public-safe
-# (they're served to every browser), but we keep this file out
-# of git so forks/clones don't accidentally inherit someone
-# else's project. Each developer creates their own supabase.js
-# from the template in the README.
-
 # ── Environment / secrets (in case any get added later) ────
 .env
 .env.local

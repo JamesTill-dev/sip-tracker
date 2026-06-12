@@ -456,7 +456,12 @@
       position: absolute;
       top: 0;
       right: 0;
-      bottom: 0;
+      /* Explicit height instead of `bottom: 0`. iOS Safari resolves
+         flex layout against an explicit height more reliably, so
+         `.s-body { flex: 1 }` actually computes a finite size and
+         can scroll. `bottom: 0` worked on desktop but left iOS
+         confused about where the drawer's bottom lived. */
+      height: 100%;
       width: min(360px, 95%);
       background: var(--bg);
       border-left: 1px solid var(--border);
@@ -464,7 +469,11 @@
       flex-direction: column;
       transform: translateX(100%);
       transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      overflow: hidden;
+      /* No `overflow: hidden` here: on iOS Safari, an `overflow:
+         hidden` ancestor of a touch-scroll container can swallow
+         the gesture before the inner element ever sees it. The
+         drawer's slide-in/out stays contained because the body
+         itself is `overflow: hidden`. */
     }
     .s-overlay.open .s-drawer { transform: translateX(0); }
 
@@ -495,20 +504,19 @@
 
     .s-body {
       flex: 1;
-      /* iOS Safari: flex children default to min-height:auto, which
-         forces the element to be at least as tall as its intrinsic
-         content. That defeats overflow-y:auto — the body grows past
-         the drawer instead of scrolling. Override to 0 so flex can
-         actually shrink it to the available space and scroll kicks
-         in. Desktop hides this bug only because the viewport is
-         tall enough that content fits without overflow. */
+      /* `min-height: 0` overrides the default `min-height: auto`
+         on flex items so the body can shrink to the drawer's
+         available height rather than ballooning to fit content. */
       min-height: 0;
-      overflow-y: auto;
-      /* Older iOS Safari (< 13) needs this for momentum scroll;
-         harmless elsewhere. */
+      /* `scroll` rather than `auto`: forces the element into a
+         scroll container unconditionally so iOS Safari registers
+         it as the touch-scroll target, even briefly during layout
+         when content hasn't yet overflowed. */
+      overflow-y: scroll;
+      /* Legacy momentum scroll on older iOS; harmless elsewhere. */
       -webkit-overflow-scrolling: touch;
-      /* Explicitly allow vertical pan so iOS doesn't swallow the
-         touch for some other gesture (e.g. swipe-to-go-back). */
+      /* Tell iOS the gesture we want, so it doesn't try to claim
+         the touch for something else (back-swipe, drawer drag). */
       touch-action: pan-y;
       padding: 16px;
       display: flex;
@@ -516,6 +524,14 @@
       gap: 18px;
       padding-bottom: 40px;
     }
+    /* When `.s-body` content exceeds its height, iOS Safari shrinks
+       its flex children proportionally instead of overflowing the
+       container. Combined with `.sgroup { overflow: hidden }`, that
+       clips every row past the first — exactly the "Wine and Liquor
+       hidden under each group" symptom. Pinning shrink to 0 forces
+       children to keep their natural height so `.s-body` is what
+       overflows (and therefore what scrolls). */
+    .s-body > * { flex-shrink: 0; }
     .s-body::-webkit-scrollbar       { width: 3px; }
     .s-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
