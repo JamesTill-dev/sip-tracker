@@ -1,6 +1,6 @@
 # Sip Tracker
 
-> A lightweight, offline-first drink tracking PWA — built because every other app required an internet connection and had animations that bogged it down.
+> A lightweight, offline-first drink tracking PWA built because the drink tracking app I used required an internet connection to work.
 
 ![Live](https://img.shields.io/badge/live-github%20pages-brightgreen)
 ![PWA](https://img.shields.io/badge/PWA-offline%20ready-blue)
