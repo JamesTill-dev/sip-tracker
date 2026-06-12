@@ -4,7 +4,6 @@
 # of git so forks/clones don't accidentally inherit someone
 # else's project. Each developer creates their own supabase.js
 # from the template in the README.
-supabase.js
 
 # ── Environment / secrets (in case any get added later) ────
 .env
